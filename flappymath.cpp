@@ -158,58 +158,59 @@ int main(void)
         jugador.velocidadY += GRAVITY;
         jugador.posicion.y += jugador.velocidadY;
 
-        // Update within your main game loop:
         tuboSuperior.x -= PIPE_SPEED;
         tuboInferior.x -= PIPE_SPEED;
         tuboMedio.x -= PIPE_SPEED;
         halfPipeKill.x -= PIPE_SPEED;
         halfPipeScore.x -= PIPE_SPEED;
 
-        // Actualiza la posición Y de las hitboxes de las respuestas
         float espacioEntreRespuestas = 50; // Espacio adicional entre las hitboxes
         float offset = 20;                 // Ajuste para acercar las hitboxes a los tubos
 
-        operacion.espacioRespuestaCorrecta.y = tuboSuperior.y + tuboSuperior.height + offset;                                         // Alineado con el hueco superior
-        operacion.espacioRespuestaIncorrecta.y = operacion.espacioRespuestaCorrecta.y + ANSWER_SPACE_HEIGHT + espacioEntreRespuestas; // Separación entre las hitboxes
+        operacion.espacioRespuestaCorrecta.y = tuboSuperior.y + tuboSuperior.height + offset;
+        operacion.espacioRespuestaIncorrecta.y = operacion.espacioRespuestaCorrecta.y + ANSWER_SPACE_HEIGHT + espacioEntreRespuestas;
 
-        // Mueve las hitboxes de las respuestas
-        operacion.espacioRespuestaCorrecta.x -= PIPE_SPEED;   // Mueve la hitbox correcta
-        operacion.espacioRespuestaIncorrecta.x -= PIPE_SPEED; // Mueve la hitbox incorrecta
+        operacion.espacioRespuestaCorrecta.x -= PIPE_SPEED;
+        operacion.espacioRespuestaIncorrecta.x -= PIPE_SPEED;
 
         if (tuboSuperior.x + PIPE_WIDTH < 0)
         {
-            // Solo inicializa las tuberías y genera una nueva operación una vez
             InicializarTubos(&tuboSuperior, &tuboInferior, &tuboMedio, &halfPipeKill, &halfPipeScore, anchoPantalla, altoPantalla, (int)tuberiaSuperior.height, &operacion);
             GenerarOperacion(&operacion, anchoPantalla, altoPantalla);
             pasarZona = false; // Reinicia la zona de puntuación
         }
 
-        // Verifica colisiones
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboSuperior) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboInferior) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboMedio) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, halfPipeKill) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaIncorrecta))
+        if (intercambiarRespuestas)
         {
-            juegoTerminado = true;
-            PlaySound(sonidod);
-            PlaySound(sonidod2);
-            StopMusicStream(musi_fond); // Detener música al morir
+            if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaIncorrecta) && !pasarZona)
+            {
+                puntuacion++;
+                pasarZona = true;
+                PlaySound(sonidot);
+            }
+            else if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaCorrecta))
+            {
+                juegoTerminado = true;
+                PlaySound(sonidod);
+                PlaySound(sonidod2);
+                StopMusicStream(musi_fond);
+            }
         }
-
-        // Manejo de puntuación
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaCorrecta) && !pasarZona)
+        else
         {
-            puntuacion++;
-            pasarZona = true;
-            PlaySound(sonidot);
-        }
-
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, halfPipeScore) && !pasarZona)
-        {
-            puntuacion++;
-            pasarZona = true;
-            PlaySound(sonidot);
+            if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaCorrecta) && !pasarZona)
+            {
+                puntuacion++;
+                pasarZona = true;
+                PlaySound(sonidot);
+            }
+            else if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaIncorrecta))
+            {
+                juegoTerminado = true;
+                PlaySound(sonidod);
+                PlaySound(sonidod2);
+                StopMusicStream(musi_fond);
+            }
         }
 
         if (jugador.posicion.y + jugador.radio > altoPantalla || jugador.posicion.y - jugador.radio < 0)
@@ -269,6 +270,9 @@ int main(void)
 
     return 0;
 }
+
+// Additional functions are unchanged...
+
 
 void InicializarTubos(Rectangle *tuboSuperior, Rectangle *tuboInferior, Rectangle *halfPipe, Rectangle *halfPipeKill, Rectangle *halfPipeScore, int anchoPantalla, int altoPantalla, int alturaTuberia, Operacion *operacion)
 {
