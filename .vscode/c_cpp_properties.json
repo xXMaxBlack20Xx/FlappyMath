@@ -4,7 +4,10 @@
             "name": "Win32",
             "includePath": [
                 "C:/raylib/raylib/src/**",
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "C:/raylib/w64devkit/mingw64/include/**",
+                "C:/raylib/w64devkit/mingw64/include/c++/**",
+                "C:/raylib/w64devkit/mingw64/lib/gcc/x86_64-w64-mingw32/*/include/**"
             ],
             "defines": [
                 "_DEBUG",

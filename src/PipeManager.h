@@ -29,6 +29,10 @@ public:
     /// Comprueba si playerBox colisiona con cualquier tubería o zona kill
     bool CheckCollision(const Rectangle &playerBox) const;
 
+    /// Nueva función: Comprueba si el jugador tocó una respuesta en el gap
+    /// Devuelve true si tocó alguna respuesta, hitCorrect indica si fue la correcta
+    bool CheckAnswerCollision(const Rectangle &playerBox, const Rectangle &correctBox, const Rectangle &incorrectBox, bool &hitCorrect) const;
+
     /// Devuelve true cuando la tubería ha pasado por completo y aún no se había marcado
     bool PassedFirstPipe() const;
 
@@ -36,6 +40,18 @@ public:
     float GetCurrentPipeX() const { return currentPipeX; }
     /// Posición Y del comienzo del gap en la tubería
     float GetCurrentGapY() const { return currentGapY; }
+    /// Tamaño del gap
+    float GetGapSize() const { return (float)pipeGap; }
+
+    // Nuevos métodos para posicionar respuestas en los espacios de navegación
+    /// Obtiene la posición Y para la respuesta superior
+    float GetTopAnswerY() const;
+    /// Obtiene la posición Y para la respuesta inferior
+    float GetBottomAnswerY() const;
+    /// Obtiene el ancho recomendado para las cajas de respuesta
+    float GetAnswerWidth() const;
+    /// Obtiene la altura recomendada para las cajas de respuesta
+    float GetAnswerHeight() const;
 
     // Accesores a las hitboxes de tubería (útil si dibujas con DrawTexturePro)
     const std::vector<Rectangle> &GetTopPipes() const { return topPipes; }
