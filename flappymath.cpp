@@ -1,446 +1,585 @@
-// Juego de FlappyMath: flappymath
+// Flappy Math
 
 #include "raylib.h"
+
 #include <stdbool.h>
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
 #include <time.h>
 
-#define GRAVITY 0.5f
-#define JUMP_SPEED -8.0f
-#define PIPE_SPEED 5
-#define PIPE_GAP 400
-#define PIPE_WIDTH 100
-#define HALF_PIPE_HEIGHT 150
-#define ANSWER_SPACE_HEIGHT 200
-#define ANSWER_SPACE_WIDTH 50
-
-Texture2D gover;
-
-static bool intercambiarRespuestas = false; // Alterna entre true y false
-
-typedef struct Jugador
+namespace
 {
-    Vector2 posicion;
-    float radio;
-    float velocidadY;
-    Texture2D textura;
-} Jugador;
+constexpr int kInitialScreenWidth = 1525;
+constexpr int kInitialScreenHeight = 830;
+constexpr float kGravity = 0.45f;
+constexpr float kJumpVelocity = -8.5f;
+constexpr float kPipeSpeed = 5.0f;
+constexpr float kPipeWidth = 100.0f;
+constexpr float kPipeGap = 500.0f;
+constexpr float kMiddlePipeHeight = 150.0f;
+constexpr float kAnswerGateHeight = 135.0f;
+constexpr float kGroundPadding = 20.0f;
+constexpr char kHighScoreFile[] = "puntuacion.bin";
 
-typedef struct Operacion
+enum class Scene
 {
-    int numero1;
-    int numero2;
-    char operador;
-    float respuestaCorrecta;
-    float respuestaIncorrecta;
-    Rectangle espacioRespuestaCorrecta;
-    Rectangle espacioRespuestaIncorrecta;
-} Operacion;
+    Start,
+    Playing,
+    GameOver
+};
 
-void InicializarTubos(Rectangle *tuboSuperior, Rectangle *tuboInferior, Rectangle *halfPipe, Rectangle *halfPipeKill, Rectangle *halfPipeScore, int anchoPantalla, int altoPantalla, int alturaTuberia, Operacion *operacion);
-void GenerarOperacion(Operacion *operacion, int anchoPantalla, int altoPantalla);
-void DibujarOperacion(Operacion operacion, Jugador jugador, bool intercambiarRespuestas);
-void DibujarPantallaInicio(int puntuacion);
-void DibujarPantallaGameOver(int puntuacion);
-void GuardarPuntuacion(int puntuacion);
-int CargarPuntuacion();
+struct Player
+{
+    Vector2 position;
+    float radius;
+    float velocityY;
+};
+
+struct AnswerGate
+{
+    Rectangle bounds;
+    int value;
+    bool correct;
+};
+
+struct MathProblem
+{
+    int left;
+    int right;
+    char operatorSymbol;
+    int correctAnswer;
+    AnswerGate gates[2];
+};
+
+struct Obstacle
+{
+    Rectangle topPipe;
+    Rectangle bottomPipe;
+    Rectangle middlePipe;
+    MathProblem problem;
+    bool scored;
+};
+
+struct Assets
+{
+    Texture2D background;
+    Texture2D title;
+    Texture2D playButton;
+    Texture2D creators;
+    Texture2D gameOverTitle;
+    Texture2D bird[3];
+    Texture2D pipeBottom;
+    Texture2D pipeTop;
+    Texture2D middlePipe;
+    Sound wing;
+    Sound hit;
+    Sound die;
+    Sound point;
+    Music music;
+};
+
+struct GameState
+{
+    Scene scene;
+    Player player;
+    Obstacle obstacle;
+    int score;
+    int highScore;
+};
+
+int LoadHighScore();
+void SaveHighScore(int score);
+Assets LoadAssets();
+void UnloadAssets(Assets *assets);
+void ResetPlayer(Player *player);
+void StartRun(GameState *game, Assets *assets);
+void EndRun(GameState *game, Assets *assets);
+void ResetObstacle(Obstacle *obstacle, int screenWidth, int screenHeight, int pipeTextureHeight);
+void GenerateProblem(MathProblem *problem);
+int GenerateWrongAnswer(int correctAnswer);
+void MoveObstacle(Obstacle *obstacle);
+bool PlayerHitsRectangle(const Player *player, Rectangle rectangle);
+AnswerGate *GetTouchedGate(Obstacle *obstacle, const Player *player);
+void UpdatePlaying(GameState *game, Assets *assets);
+void DrawBackground(Texture2D background);
+void DrawStartScreen(const GameState *game, const Assets *assets);
+void DrawPlayingScreen(const GameState *game, const Assets *assets);
+void DrawGameOverScreen(const GameState *game, const Assets *assets);
+void DrawTextureCentered(Texture2D texture, Vector2 center, Color tint);
+void DrawTextCentered(const char *text, int y, int fontSize, Color color);
+void DrawTextWithShadow(const char *text, int x, int y, int fontSize, Color color);
+void DrawPipes(const Obstacle *obstacle, const Assets *assets);
+void DrawProblem(const Obstacle *obstacle);
+void DrawPlayer(const Player *player, const Assets *assets);
+bool WantsPrimaryAction();
+} // namespace
 
 int main(void)
 {
-    srand(time(NULL));
+    srand((unsigned int)time(NULL));
 
-    const int anchoPantalla = 1525;
-    const int altoPantalla = 830;
-    InitAudioDevice();
-    InitWindow(anchoPantalla, altoPantalla, "Flappy Math - Programacion Estructurada");
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
-
-    Texture2D fondo = LoadTexture("assets/sprites/fondo.png");
-    Texture2D titulo = LoadTexture("assets/sprites/Titulo.png");
-    Texture2D jugar = LoadTexture("assets/sprites/activar.png");
-    Texture2D creadores = LoadTexture("assets/sprites/creadores.png");
-    gover = LoadTexture("assets/sprites/FINJUEGO.png");
-    Texture2D pajaro = LoadTexture("assets/sprites/redbird-upflap.png");
-    Texture2D tuberiaInferior = LoadTexture("assets/sprites/pipe-green.png");
-    Texture2D tuberiaSuperior = LoadTexture("assets/sprites/pipe-green-upside.png");
-    Texture2D halfPipe = LoadTexture("assets/sprites/half.pipe.png");
-
-    Sound sonido = LoadSound("assets/audio/wing.wav");
-    Sound sonidod = LoadSound("assets/audio/hit.wav");
-    Sound sonidod2 = LoadSound("assets/audio/die.wav");
-    Sound sonidot = LoadSound("assets/audio/point.wav");
-    Music musi_fond = LoadMusicStream("assets/audio/musicita.mp3");
-
-    Jugador jugador = {0};
-    jugador.posicion = (Vector2){anchoPantalla / 2.0f - 100, altoPantalla / 2.0f};
-    jugador.radio = 18;
-    jugador.velocidadY = 0;
-    jugador.textura = pajaro;
-
-    Rectangle tuboSuperior;
-    Rectangle tuboInferior;
-    Rectangle tuboMedio;
-    Rectangle halfPipeKill;
-    Rectangle halfPipeScore;
-
-    Operacion operacion;
-
-    int puntuacion = 0;
-    int puntuacionMasAlta = CargarPuntuacion();
-    bool juegoIniciado = false;
-    bool juegoTerminado = false;
-    bool pasarZona = false;
-
+    InitWindow(kInitialScreenWidth, kInitialScreenHeight, "Flappy Math");
+    InitAudioDevice();
     SetTargetFPS(60);
+
+    Assets assets = LoadAssets();
+    GameState game = {};
+    game.scene = Scene::Start;
+    game.highScore = LoadHighScore();
+    ResetPlayer(&game.player);
+    ResetObstacle(&game.obstacle, GetScreenWidth(), GetScreenHeight(), assets.pipeTop.height);
 
     while (!WindowShouldClose())
     {
-        if (!juegoIniciado)
+        if (game.scene == Scene::Start && WantsPrimaryAction())
         {
-            BeginDrawing();
-            ClearBackground(DARKGREEN);
-            DrawTextureV(fondo, (Vector2){0, 0}, WHITE);
-            DrawTextureV(titulo, (Vector2){325, 200}, WHITE);
-            DrawTextureV(jugar, (Vector2){445, 530}, WHITE);
-            DrawTextureV(creadores, (Vector2){15, 760}, WHITE);
-
-            DibujarPantallaInicio(puntuacionMasAlta);
-            EndDrawing();
-            if (IsKeyPressed(KEY_SPACE))
-            {
-                juegoIniciado = true;
-                PlayMusicStream(musi_fond); // Iniciar música al comenzar el juego
-            }
-            continue;
+            StartRun(&game, &assets);
+        }
+        else if (game.scene == Scene::GameOver && IsKeyPressed(KEY_R))
+        {
+            StartRun(&game, &assets);
         }
 
-        if (juegoTerminado)
+        if (game.scene == Scene::Playing)
         {
-            BeginDrawing();
-            ClearBackground(RAYWHITE);
-            DrawTextureV(fondo, (Vector2){0, 0}, WHITE);
-            DibujarPantallaGameOver(puntuacion);
-            EndDrawing();
-
-            if (puntuacion > puntuacionMasAlta)
-            {
-                puntuacionMasAlta = puntuacion;
-                GuardarPuntuacion(puntuacionMasAlta);
-            }
-
-            if (IsKeyPressed(KEY_R))
-            {
-                juegoIniciado = false;
-                juegoTerminado = false;
-                puntuacion = 0;
-                jugador.posicion = (Vector2){anchoPantalla / 2.0f - 100, altoPantalla / 2.0f};
-                InicializarTubos(&tuboSuperior, &tuboInferior, &tuboMedio, &halfPipeKill, &halfPipeScore, anchoPantalla, altoPantalla, tuberiaSuperior.height, &operacion);
-                GenerarOperacion(&operacion, anchoPantalla, altoPantalla);
-                PlayMusicStream(musi_fond); // Reiniciar música al reiniciar el juego
-            }
-            else
-            {
-                StopMusicStream(musi_fond); // Detener música si el juego ha terminado
-            }
-            continue;
-        }
-
-        UpdateMusicStream(musi_fond); // Actualizar el flujo de música
-
-        if (IsKeyPressed(KEY_SPACE))
-            jugador.velocidadY = JUMP_SPEED;
-
-        if (IsKeyPressed(KEY_SPACE))
-            PlaySound(sonido);
-
-        jugador.velocidadY += GRAVITY;
-        jugador.posicion.y += jugador.velocidadY;
-
-        // Update within your main game loop:
-        tuboSuperior.x -= PIPE_SPEED;
-        tuboInferior.x -= PIPE_SPEED;
-        tuboMedio.x -= PIPE_SPEED;
-        halfPipeKill.x -= PIPE_SPEED;
-        halfPipeScore.x -= PIPE_SPEED;
-
-        // Actualiza la posición Y de las hitboxes de las respuestas
-        float espacioEntreRespuestas = 50; // Espacio adicional entre las hitboxes
-        float offset = 20;                 // Ajuste para acercar las hitboxes a los tubos
-
-        operacion.espacioRespuestaCorrecta.y = tuboSuperior.y + tuboSuperior.height + offset;                                         // Alineado con el hueco superior
-        operacion.espacioRespuestaIncorrecta.y = operacion.espacioRespuestaCorrecta.y + ANSWER_SPACE_HEIGHT + espacioEntreRespuestas; // Separación entre las hitboxes
-
-        // Mueve las hitboxes de las respuestas
-        operacion.espacioRespuestaCorrecta.x -= PIPE_SPEED;   // Mueve la hitbox correcta
-        operacion.espacioRespuestaIncorrecta.x -= PIPE_SPEED; // Mueve la hitbox incorrecta
-
-        if (tuboSuperior.x + PIPE_WIDTH < 0)
-        {
-            // Solo inicializa las tuberías y genera una nueva operación una vez
-            InicializarTubos(&tuboSuperior, &tuboInferior, &tuboMedio, &halfPipeKill, &halfPipeScore, anchoPantalla, altoPantalla, (int)tuberiaSuperior.height, &operacion);
-            GenerarOperacion(&operacion, anchoPantalla, altoPantalla);
-            pasarZona = false; // Reinicia la zona de puntuación
-        }
-
-        // Verifica colisiones
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboSuperior) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboInferior) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, tuboMedio) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, halfPipeKill) ||
-            CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaIncorrecta))
-        {
-            juegoTerminado = true;
-            PlaySound(sonidod);
-            PlaySound(sonidod2);
-            StopMusicStream(musi_fond); // Detener música al morir
-        }
-
-        // Manejo de puntuación
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, operacion.espacioRespuestaCorrecta) && !pasarZona)
-        {
-            puntuacion++;
-            pasarZona = true;
-            PlaySound(sonidot);
-        }
-
-        if (CheckCollisionCircleRec(jugador.posicion, jugador.radio, halfPipeScore) && !pasarZona)
-        {
-            puntuacion++;
-            pasarZona = true;
-            PlaySound(sonidot);
-        }
-
-        if (jugador.posicion.y + jugador.radio > altoPantalla || jugador.posicion.y - jugador.radio < 0)
-        {
-            juegoTerminado = true;
-            PlaySound(sonidod);
-            PlaySound(sonidod2);
-            StopMusicStream(musi_fond); // Detener música al caer
+            UpdatePlaying(&game, &assets);
         }
 
         BeginDrawing();
+        ClearBackground(RAYWHITE);
 
-        DrawTextureV(fondo, (Vector2){0, 0}, WHITE);
-
-        DrawTextureV(jugador.textura, jugador.posicion, WHITE);
-
-        DrawTexturePro(tuberiaSuperior,
-                       (Rectangle){0, 0, (float)tuberiaSuperior.width, (float)tuberiaSuperior.height},
-                       (Rectangle){tuboSuperior.x, tuboSuperior.y, PIPE_WIDTH, tuboSuperior.height},
-                       (Vector2){0, 0}, 0, WHITE);
-
-        DrawTexturePro(tuberiaInferior,
-                       (Rectangle){0, 0, (float)tuberiaInferior.width, (float)tuberiaInferior.height},
-                       (Rectangle){tuboInferior.x, tuboInferior.y, PIPE_WIDTH, tuboInferior.height},
-                       (Vector2){0, 0}, 0, WHITE);
-
-        DrawTexturePro(halfPipe,
-                       (Rectangle){0, 0, (float)halfPipe.width, (float)halfPipe.height},
-                       (Rectangle){tuboMedio.x, tuboMedio.y, PIPE_WIDTH, tuboMedio.height},
-                       (Vector2){0, 0}, 0, WHITE);
-
-        DibujarOperacion(operacion, jugador, intercambiarRespuestas);
-
-        DrawText(TextFormat("PUNTUACION: %d", puntuacion), anchoPantalla / 2 - MeasureText(TextFormat("PUNTUACION: %d", puntuacion), 40) / 2, 10, 40, BLACK);
+        switch (game.scene)
+        {
+        case Scene::Start:
+            DrawStartScreen(&game, &assets);
+            break;
+        case Scene::Playing:
+            DrawPlayingScreen(&game, &assets);
+            break;
+        case Scene::GameOver:
+            DrawGameOverScreen(&game, &assets);
+            break;
+        }
 
         EndDrawing();
     }
 
-    UnloadTexture(fondo);
-    UnloadTexture(pajaro);
-    UnloadTexture(gover);
-    UnloadTexture(titulo);
-    UnloadTexture(jugar);
-    UnloadTexture(creadores);
-    UnloadTexture(tuberiaInferior);
-    UnloadTexture(tuberiaSuperior);
-    UnloadTexture(halfPipe);
-
-    UnloadSound(sonido);
-    UnloadSound(sonidod);
-    UnloadSound(sonidod2);
-    UnloadSound(sonidot);
-    UnloadMusicStream(musi_fond);
-
+    UnloadAssets(&assets);
     CloseAudioDevice();
     CloseWindow();
 
     return 0;
 }
 
-void InicializarTubos(Rectangle *tuboSuperior, Rectangle *tuboInferior, Rectangle *halfPipe, Rectangle *halfPipeKill, Rectangle *halfPipeScore, int anchoPantalla, int altoPantalla, int alturaTuberia, Operacion *operacion)
+namespace
 {
-    int randomY = GetRandomValue(-150, 150);
-
-    // Espaciado entre tuberías
-    float pipeGap = 500.0f;                                  // Ajusta el tamaño del espacio entre las tuberías
-    float pipeCenterY = (float)(altoPantalla / 2) + randomY; // Punto central de las tuberías
-
-    // Tuberías superior e inferior
-    *tuboSuperior = (Rectangle){(float)anchoPantalla, pipeCenterY - pipeGap / 2 - (float)alturaTuberia, PIPE_WIDTH, (float)alturaTuberia};
-    *tuboInferior = (Rectangle){(float)anchoPantalla, pipeCenterY + pipeGap / 2, PIPE_WIDTH, (float)alturaTuberia};
-
-    // Half pipe centrado
-    *halfPipe = (Rectangle){(float)anchoPantalla, pipeCenterY - HALF_PIPE_HEIGHT / 2, PIPE_WIDTH, HALF_PIPE_HEIGHT};
-
-    // Hitboxes ajustadas
-    *halfPipeKill = (Rectangle){(float)anchoPantalla + PIPE_WIDTH / 4 - 50, pipeCenterY - HALF_PIPE_HEIGHT / 2, PIPE_WIDTH, HALF_PIPE_HEIGHT};  // Ajustado a la izquierda
-    *halfPipeScore = (Rectangle){(float)anchoPantalla + PIPE_WIDTH / 2 - 50, pipeCenterY - HALF_PIPE_HEIGHT / 2, PIPE_WIDTH, HALF_PIPE_HEIGHT}; // Ajustado a la izquierda
-
-    // Correct and incorrect answer hitboxes
-    operacion->espacioRespuestaIncorrecta = (Rectangle){
-        .x = (float)anchoPantalla + PIPE_WIDTH - 150,              // Ajustado a la izquierda
-        .y = pipeCenterY + PIPE_GAP / 2 - ANSWER_SPACE_HEIGHT / 2, // Alineado con el hueco inferior
-        .width = ANSWER_SPACE_WIDTH,
-        .height = ANSWER_SPACE_HEIGHT};
-
-    operacion->espacioRespuestaCorrecta = (Rectangle){
-        .x = (float)anchoPantalla + PIPE_WIDTH - 150,              // Ajustado a la izquierda
-        .y = pipeCenterY - PIPE_GAP / 2 - ANSWER_SPACE_HEIGHT / 2, // Alineado con el hueco superior
-        .width = ANSWER_SPACE_WIDTH,
-        .height = ANSWER_SPACE_HEIGHT};
+int LoadHighScore()
+{
+    int score = 0;
+    FILE *file = fopen(kHighScoreFile, "rb");
+    if (file != NULL)
+    {
+        size_t readCount = fread(&score, sizeof(score), 1, file);
+        fclose(file);
+        if (readCount != 1 || score < 0)
+        {
+            score = 0;
+        }
+    }
+    return score;
 }
 
-// Genera la operacion a resolver en
-void GenerarOperacion(Operacion *operacion, int anchoPantalla, int altoPantalla)
+void SaveHighScore(int score)
 {
-    operacion->numero1 = GetRandomValue(1, 20);
-    operacion->numero2 = GetRandomValue(1, 20);
-
-    // Cambiar la lógica para incluir multiplicación y división
-    int tipoOperacion = GetRandomValue(0, 3); // 0: suma, 1: resta, 2: multiplicación, 3: división
-    switch (tipoOperacion)
+    FILE *file = fopen(kHighScoreFile, "wb");
+    if (file != NULL)
     {
-    case 0: // Suma
-        operacion->operador = '+';
-        operacion->respuestaCorrecta = operacion->numero1 + operacion->numero2;
+        fwrite(&score, sizeof(score), 1, file);
+        fclose(file);
+    }
+}
+
+Assets LoadAssets()
+{
+    Assets assets = {};
+    assets.background = LoadTexture("assets/sprites/fondo.png");
+    assets.title = LoadTexture("assets/sprites/Titulo.png");
+    assets.playButton = LoadTexture("assets/sprites/activar.png");
+    assets.creators = LoadTexture("assets/sprites/creadores.png");
+    assets.gameOverTitle = LoadTexture("assets/sprites/FINJUEGO.png");
+    assets.bird[0] = LoadTexture("assets/sprites/redbird-upflap.png");
+    assets.bird[1] = LoadTexture("assets/sprites/redbird-midflap.png");
+    assets.bird[2] = LoadTexture("assets/sprites/redbird-downflap.png");
+    assets.pipeBottom = LoadTexture("assets/sprites/pipe-green.png");
+    assets.pipeTop = LoadTexture("assets/sprites/pipe-green-upside.png");
+    assets.middlePipe = LoadTexture("assets/sprites/half.pipe.png");
+
+    assets.wing = LoadSound("assets/audio/wing.wav");
+    assets.hit = LoadSound("assets/audio/hit.wav");
+    assets.die = LoadSound("assets/audio/die.wav");
+    assets.point = LoadSound("assets/audio/point.wav");
+    assets.music = LoadMusicStream("assets/audio/musicita.mp3");
+
+    return assets;
+}
+
+void UnloadAssets(Assets *assets)
+{
+    UnloadTexture(assets->background);
+    UnloadTexture(assets->title);
+    UnloadTexture(assets->playButton);
+    UnloadTexture(assets->creators);
+    UnloadTexture(assets->gameOverTitle);
+    for (int i = 0; i < 3; ++i)
+    {
+        UnloadTexture(assets->bird[i]);
+    }
+    UnloadTexture(assets->pipeBottom);
+    UnloadTexture(assets->pipeTop);
+    UnloadTexture(assets->middlePipe);
+
+    UnloadSound(assets->wing);
+    UnloadSound(assets->hit);
+    UnloadSound(assets->die);
+    UnloadSound(assets->point);
+    UnloadMusicStream(assets->music);
+}
+
+void ResetPlayer(Player *player)
+{
+    player->position = (Vector2){GetScreenWidth() * 0.35f, GetScreenHeight() * 0.5f};
+    player->radius = 18.0f;
+    player->velocityY = 0.0f;
+}
+
+void StartRun(GameState *game, Assets *assets)
+{
+    game->scene = Scene::Playing;
+    game->score = 0;
+    ResetPlayer(&game->player);
+    ResetObstacle(&game->obstacle, GetScreenWidth(), GetScreenHeight(), assets->pipeTop.height);
+    StopMusicStream(assets->music);
+    PlayMusicStream(assets->music);
+}
+
+void EndRun(GameState *game, Assets *assets)
+{
+    if (game->scene != Scene::Playing)
+    {
+        return;
+    }
+
+    game->scene = Scene::GameOver;
+    StopMusicStream(assets->music);
+    PlaySound(assets->hit);
+    PlaySound(assets->die);
+
+    if (game->score > game->highScore)
+    {
+        game->highScore = game->score;
+        SaveHighScore(game->highScore);
+    }
+}
+
+void ResetObstacle(Obstacle *obstacle, int screenWidth, int screenHeight, int pipeTextureHeight)
+{
+    float minCenterY = kPipeGap * 0.5f + kGroundPadding;
+    float maxCenterY = screenHeight - kPipeGap * 0.5f - kGroundPadding;
+    if (maxCenterY < minCenterY)
+    {
+        minCenterY = screenHeight * 0.5f;
+        maxCenterY = screenHeight * 0.5f;
+    }
+
+    const float centerY = (float)GetRandomValue((int)minCenterY, (int)maxCenterY);
+    const float pipeHeight = pipeTextureHeight > 0 ? (float)pipeTextureHeight : (float)screenHeight;
+    const float pipeX = (float)screenWidth;
+    const float topPipeBottom = centerY - kPipeGap * 0.5f;
+    const float bottomPipeTop = centerY + kPipeGap * 0.5f;
+    const float middleTop = centerY - kMiddlePipeHeight * 0.5f;
+    const float middleBottom = centerY + kMiddlePipeHeight * 0.5f;
+    const float laneHeight = (kPipeGap - kMiddlePipeHeight) * 0.5f;
+    const float gateOffsetY = (laneHeight - kAnswerGateHeight) * 0.5f;
+
+    obstacle->topPipe = (Rectangle){pipeX, topPipeBottom - pipeHeight, kPipeWidth, pipeHeight};
+    obstacle->bottomPipe = (Rectangle){pipeX, bottomPipeTop, kPipeWidth, pipeHeight};
+    obstacle->middlePipe = (Rectangle){pipeX, middleTop, kPipeWidth, kMiddlePipeHeight};
+    obstacle->scored = false;
+
+    GenerateProblem(&obstacle->problem);
+
+    obstacle->problem.gates[0].bounds = (Rectangle){
+        pipeX,
+        topPipeBottom + gateOffsetY,
+        kPipeWidth,
+        kAnswerGateHeight};
+    obstacle->problem.gates[1].bounds = (Rectangle){
+        pipeX,
+        middleBottom + gateOffsetY,
+        kPipeWidth,
+        kAnswerGateHeight};
+}
+
+void GenerateProblem(MathProblem *problem)
+{
+    const int type = GetRandomValue(0, 3);
+
+    switch (type)
+    {
+    case 0:
+        problem->left = GetRandomValue(1, 20);
+        problem->right = GetRandomValue(1, 20);
+        problem->operatorSymbol = '+';
+        problem->correctAnswer = problem->left + problem->right;
         break;
-    case 1: // Resta
-        operacion->operador = '-';
-        operacion->respuestaCorrecta = operacion->numero1 - operacion->numero2;
+    case 1:
+        problem->left = GetRandomValue(5, 30);
+        problem->right = GetRandomValue(1, problem->left);
+        problem->operatorSymbol = '-';
+        problem->correctAnswer = problem->left - problem->right;
         break;
-    case 2: // Multiplicación
-        operacion->operador = '*';
-        operacion->respuestaCorrecta = operacion->numero1 * operacion->numero2;
+    case 2:
+        problem->left = GetRandomValue(1, 12);
+        problem->right = GetRandomValue(1, 12);
+        problem->operatorSymbol = 'x';
+        problem->correctAnswer = problem->left * problem->right;
         break;
-    case 3: // División
-        operacion->operador = '/';
-        // Asegúrate de que no se divida por cero
-        if (operacion->numero2 == 0)
-            operacion->numero2 = 1; // Evitar división por cero
-        operacion->respuestaCorrecta = (float)operacion->numero1 / (float)operacion->numero2;
+    default:
+        problem->right = GetRandomValue(2, 12);
+        problem->correctAnswer = GetRandomValue(1, 12);
+        problem->left = problem->right * problem->correctAnswer;
+        problem->operatorSymbol = '/';
         break;
     }
 
-    // Generar una respuesta incorrecta
-    operacion->respuestaIncorrecta = operacion->respuestaCorrecta + (float)GetRandomValue(1, 30);
+    const int correctGate = GetRandomValue(0, 1);
+    const int wrongAnswer = GenerateWrongAnswer(problem->correctAnswer);
 
-    // Posiciones iniciales
-    if (intercambiarRespuestas)
+    for (int i = 0; i < 2; ++i)
     {
-        operacion->espacioRespuestaCorrecta = (Rectangle){
-            (float)anchoPantalla,
-            (float)(altoPantalla / 2 + ANSWER_SPACE_HEIGHT),
-            (float)ANSWER_SPACE_WIDTH,
-            (float)ANSWER_SPACE_HEIGHT};
-        operacion->espacioRespuestaIncorrecta = (Rectangle){
-            (float)anchoPantalla,
-            (float)(altoPantalla / 2 - ANSWER_SPACE_HEIGHT),
-            (float)ANSWER_SPACE_WIDTH,
-            (float)ANSWER_SPACE_HEIGHT};
+        problem->gates[i].correct = i == correctGate;
+        problem->gates[i].value = problem->gates[i].correct ? problem->correctAnswer : wrongAnswer;
     }
-    else
-    {
-        operacion->espacioRespuestaCorrecta = (Rectangle){
-            (float)anchoPantalla,
-            (float)(altoPantalla / 2 - ANSWER_SPACE_HEIGHT),
-            (float)ANSWER_SPACE_WIDTH,
-            (float)ANSWER_SPACE_HEIGHT};
-        operacion->espacioRespuestaIncorrecta = (Rectangle){
-            (float)anchoPantalla,
-            (float)(altoPantalla / 2 + ANSWER_SPACE_HEIGHT),
-            (float)ANSWER_SPACE_WIDTH,
-            (float)ANSWER_SPACE_HEIGHT};
-    }
-
-    intercambiarRespuestas = !intercambiarRespuestas; // Cambiar para la próxima vez
 }
 
-// Dibuja los datos de la operacion que ya ha sido generada
-void DibujarOperacion(Operacion operacion, Jugador jugador, bool intercambiarRespuestas)
+int GenerateWrongAnswer(int correctAnswer)
 {
-    // Render operation text, posicionando el resultado más a la izquierda
-    DrawText(TextFormat("%d %c %d =", operacion.numero1, operacion.operador, operacion.numero2),
-             operacion.espacioRespuestaCorrecta.x - 300, operacion.espacioRespuestaCorrecta.y + 230, 35, WHITE); // Ajusta el valor -200 según sea necesario
-
-    // Intercambio de posiciones basado en la variable intercambiarRespuestas
-    if (intercambiarRespuestas)
+    int wrongAnswer = correctAnswer;
+    while (wrongAnswer == correctAnswer)
     {
-        // Incorrect answer in the space for correct answer
-        DrawText(TextFormat("%.2f", operacion.respuestaIncorrecta),
-                 operacion.espacioRespuestaCorrecta.x + (operacion.espacioRespuestaCorrecta.width - MeasureText(TextFormat("%.2f", operacion.respuestaIncorrecta), 30)) / 2,
-                 operacion.espacioRespuestaCorrecta.y + (operacion.espacioRespuestaCorrecta.height - 80) / 2, 35, WHITE);
-
-        // Correct answer in the space for incorrect answer
-        DrawText(TextFormat("%.2f", operacion.respuestaCorrecta),
-                 operacion.espacioRespuestaIncorrecta.x + (operacion.espacioRespuestaIncorrecta.width - MeasureText(TextFormat("%.2f", operacion.respuestaCorrecta), 30)) / 2,
-                 operacion.espacioRespuestaIncorrecta.y + (operacion.espacioRespuestaIncorrecta.height - 15) / 2, 35, WHITE);
+        int delta = GetRandomValue(1, 9);
+        if (GetRandomValue(0, 1) == 0)
+        {
+            delta = -delta;
+        }
+        wrongAnswer = correctAnswer + delta;
     }
-    else
+    return wrongAnswer;
+}
+
+void MoveObstacle(Obstacle *obstacle)
+{
+    obstacle->topPipe.x -= kPipeSpeed;
+    obstacle->bottomPipe.x -= kPipeSpeed;
+    obstacle->middlePipe.x -= kPipeSpeed;
+    for (int i = 0; i < 2; ++i)
     {
-        // Correct answer
-        DrawText(TextFormat("%.2f", operacion.respuestaCorrecta),
-                 operacion.espacioRespuestaCorrecta.x + (operacion.espacioRespuestaCorrecta.width - MeasureText(TextFormat("%.2f", operacion.respuestaCorrecta), 30)) / 2,
-                 operacion.espacioRespuestaCorrecta.y + (operacion.espacioRespuestaCorrecta.height - 80) / 2, 35, WHITE);
-
-        // Incorrect answer
-        DrawText(TextFormat("%.2f", operacion.respuestaIncorrecta),
-                 operacion.espacioRespuestaIncorrecta.x + (operacion.espacioRespuestaIncorrecta.width - MeasureText(TextFormat("%.2f", operacion.respuestaIncorrecta), 30)) / 2,
-                 operacion.espacioRespuestaIncorrecta.y + (operacion.espacioRespuestaIncorrecta.height - 15) / 2, 35, WHITE);
-    }
-
-    // Debug: Draw hitboxes
-    DrawRectangleLines(operacion.espacioRespuestaCorrecta.x, operacion.espacioRespuestaCorrecta.y,
-                       operacion.espacioRespuestaCorrecta.width, operacion.espacioRespuestaCorrecta.height, GREEN);
-    DrawRectangleLines(operacion.espacioRespuestaIncorrecta.x, operacion.espacioRespuestaIncorrecta.y,
-                       operacion.espacioRespuestaIncorrecta.width, operacion.espacioRespuestaIncorrecta.height, RED);
-}
-
-void DibujarPantallaInicio(int puntuacion)
-{
-    DrawText(TextFormat("LA PUNTUACION MAS ALTA ES: %d", puntuacion), GetScreenWidth() / 2 - 75 - MeasureText(TextFormat("LA PUNTUACION MAS ALTA ES: %d", puntuacion), 20) / 2, GetScreenHeight() / 2 + 210, 30, BLACK);
-}
-
-void DibujarPantallaGameOver(int puntuacion)
-{
-    const char *reiniciar = "Presiona [R] para reiniciar";
-    DrawTextureV(gover, (Vector2){200, 200}, WHITE);
-    DrawText(TextFormat("PUNTUACION: %d", puntuacion), GetScreenWidth() / 2 - MeasureText(TextFormat("PUNTUACION: %d", puntuacion), 20) + 50, GetScreenHeight() / 2 + 150, 30, BLACK);
-    DrawText(reiniciar, GetScreenWidth() / 2 - MeasureText(reiniciar, 20) + 10, GetScreenHeight() / 2 + 215, 40, BLACK);
-}
-
-void GuardarPuntuacion(int puntuacion)
-{
-    FILE *archivoPuntuacion;
-    archivoPuntuacion = fopen("puntuacion.bin", "wb");
-    if (archivoPuntuacion != NULL)
-    {
-        fwrite(&puntuacion, sizeof(int), 1, archivoPuntuacion);
-        fclose(archivoPuntuacion);
+        obstacle->problem.gates[i].bounds.x -= kPipeSpeed;
     }
 }
 
-int CargarPuntuacion()
+bool PlayerHitsRectangle(const Player *player, Rectangle rectangle)
 {
-    FILE *archivoPuntuacion;
-    int puntuacion = 0;
-    archivoPuntuacion = fopen("puntuacion.bin", "rb");
-    if (archivoPuntuacion != NULL)
-    {
-        fread(&puntuacion, sizeof(int), 1, archivoPuntuacion);
-        fclose(archivoPuntuacion);
-    }
-    return puntuacion;
+    return CheckCollisionCircleRec(player->position, player->radius, rectangle);
 }
+
+AnswerGate *GetTouchedGate(Obstacle *obstacle, const Player *player)
+{
+    for (int i = 0; i < 2; ++i)
+    {
+        if (PlayerHitsRectangle(player, obstacle->problem.gates[i].bounds))
+        {
+            return &obstacle->problem.gates[i];
+        }
+    }
+    return NULL;
+}
+
+void UpdatePlaying(GameState *game, Assets *assets)
+{
+    UpdateMusicStream(assets->music);
+
+    if (WantsPrimaryAction())
+    {
+        game->player.velocityY = kJumpVelocity;
+        PlaySound(assets->wing);
+    }
+
+    game->player.velocityY += kGravity;
+    game->player.position.y += game->player.velocityY;
+
+    MoveObstacle(&game->obstacle);
+
+    if (game->obstacle.topPipe.x + game->obstacle.topPipe.width < 0.0f)
+    {
+        ResetObstacle(&game->obstacle, GetScreenWidth(), GetScreenHeight(), assets->pipeTop.height);
+    }
+
+    if (PlayerHitsRectangle(&game->player, game->obstacle.topPipe) ||
+        PlayerHitsRectangle(&game->player, game->obstacle.bottomPipe) ||
+        PlayerHitsRectangle(&game->player, game->obstacle.middlePipe))
+    {
+        EndRun(game, assets);
+        return;
+    }
+
+    AnswerGate *touchedGate = GetTouchedGate(&game->obstacle, &game->player);
+    if (touchedGate != NULL)
+    {
+        if (touchedGate->correct)
+        {
+            if (!game->obstacle.scored)
+            {
+                game->score++;
+                game->obstacle.scored = true;
+                PlaySound(assets->point);
+            }
+        }
+        else
+        {
+            EndRun(game, assets);
+            return;
+        }
+    }
+
+    if (game->player.position.y + game->player.radius > GetScreenHeight() ||
+        game->player.position.y - game->player.radius < 0)
+    {
+        EndRun(game, assets);
+    }
+}
+
+void DrawBackground(Texture2D background)
+{
+    DrawTexturePro(
+        background,
+        (Rectangle){0.0f, 0.0f, (float)background.width, (float)background.height},
+        (Rectangle){0.0f, 0.0f, (float)GetScreenWidth(), (float)GetScreenHeight()},
+        (Vector2){0.0f, 0.0f},
+        0.0f,
+        WHITE);
+}
+
+void DrawStartScreen(const GameState *game, const Assets *assets)
+{
+    DrawBackground(assets->background);
+    DrawTextureCentered(assets->title, (Vector2){GetScreenWidth() * 0.5f, GetScreenHeight() * 0.34f}, WHITE);
+    DrawTextureCentered(assets->playButton, (Vector2){GetScreenWidth() * 0.5f, GetScreenHeight() * 0.68f}, WHITE);
+    DrawTextureV(assets->creators, (Vector2){15.0f, (float)GetScreenHeight() - assets->creators.height - 15.0f}, WHITE);
+    DrawTextCentered(TextFormat("LA PUNTUACION MAS ALTA ES: %d", game->highScore), (int)(GetScreenHeight() * 0.79f), 30, BLACK);
+}
+
+void DrawPlayingScreen(const GameState *game, const Assets *assets)
+{
+    DrawBackground(assets->background);
+    DrawPipes(&game->obstacle, assets);
+    DrawProblem(&game->obstacle);
+    DrawPlayer(&game->player, assets);
+    DrawTextCentered(TextFormat("PUNTUACION: %d", game->score), 10, 40, BLACK);
+}
+
+void DrawGameOverScreen(const GameState *game, const Assets *assets)
+{
+    DrawBackground(assets->background);
+    DrawTextureCentered(assets->gameOverTitle, (Vector2){GetScreenWidth() * 0.5f, GetScreenHeight() * 0.35f}, WHITE);
+    DrawTextCentered(TextFormat("PUNTUACION: %d", game->score), (int)(GetScreenHeight() * 0.62f), 34, BLACK);
+    DrawTextCentered(TextFormat("MEJOR PUNTUACION: %d", game->highScore), (int)(GetScreenHeight() * 0.69f), 30, BLACK);
+    DrawTextCentered("Presiona [R] para reiniciar", (int)(GetScreenHeight() * 0.77f), 36, BLACK);
+}
+
+void DrawTextureCentered(Texture2D texture, Vector2 center, Color tint)
+{
+    DrawTextureV(
+        texture,
+        (Vector2){center.x - texture.width * 0.5f, center.y - texture.height * 0.5f},
+        tint);
+}
+
+void DrawTextCentered(const char *text, int y, int fontSize, Color color)
+{
+    const int x = GetScreenWidth() / 2 - MeasureText(text, fontSize) / 2;
+    DrawTextWithShadow(text, x, y, fontSize, color);
+}
+
+void DrawTextWithShadow(const char *text, int x, int y, int fontSize, Color color)
+{
+    DrawText(text, x + 2, y + 2, fontSize, Fade(WHITE, 0.7f));
+    DrawText(text, x, y, fontSize, color);
+}
+
+void DrawPipes(const Obstacle *obstacle, const Assets *assets)
+{
+    DrawTexturePro(
+        assets->pipeTop,
+        (Rectangle){0.0f, 0.0f, (float)assets->pipeTop.width, (float)assets->pipeTop.height},
+        obstacle->topPipe,
+        (Vector2){0.0f, 0.0f},
+        0.0f,
+        WHITE);
+
+    DrawTexturePro(
+        assets->pipeBottom,
+        (Rectangle){0.0f, 0.0f, (float)assets->pipeBottom.width, (float)assets->pipeBottom.height},
+        obstacle->bottomPipe,
+        (Vector2){0.0f, 0.0f},
+        0.0f,
+        WHITE);
+
+    DrawTexturePro(
+        assets->middlePipe,
+        (Rectangle){0.0f, 0.0f, (float)assets->middlePipe.width, (float)assets->middlePipe.height},
+        obstacle->middlePipe,
+        (Vector2){0.0f, 0.0f},
+        0.0f,
+        WHITE);
+}
+
+void DrawProblem(const Obstacle *obstacle)
+{
+    const MathProblem *problem = &obstacle->problem;
+    const char *problemText = TextFormat("%d %c %d =", problem->left, problem->operatorSymbol, problem->right);
+    DrawTextWithShadow(problemText, (int)(obstacle->topPipe.x - 245.0f), (int)(GetScreenHeight() * 0.48f), 36, WHITE);
+
+    for (int i = 0; i < 2; ++i)
+    {
+        const AnswerGate *gate = &problem->gates[i];
+        const char *answerText = TextFormat("%d", gate->value);
+        DrawRectangleRec(gate->bounds, Fade(BLACK, 0.35f));
+        DrawRectangleLinesEx(gate->bounds, 3.0f, Fade(WHITE, 0.85f));
+        DrawTextWithShadow(
+            answerText,
+            (int)(gate->bounds.x + gate->bounds.width * 0.5f - MeasureText(answerText, 34) * 0.5f),
+            (int)(gate->bounds.y + gate->bounds.height * 0.5f - 17.0f),
+            34,
+            WHITE);
+    }
+}
+
+void DrawPlayer(const Player *player, const Assets *assets)
+{
+    const int frame = ((int)(GetTime() * 12.0)) % 3;
+    Texture2D bird = assets->bird[frame];
+    DrawTextureV(
+        bird,
+        (Vector2){player->position.x - bird.width * 0.5f, player->position.y - bird.height * 0.5f},
+        WHITE);
+}
+
+bool WantsPrimaryAction()
+{
+    return IsKeyPressed(KEY_SPACE) ||
+           IsKeyPressed(KEY_ENTER) ||
+           IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+} // namespace
