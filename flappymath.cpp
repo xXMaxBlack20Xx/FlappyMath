@@ -21,6 +21,7 @@ constexpr float kAnswerGateHeight = 135.0f;
 constexpr float kGroundPadding = 20.0f;
 constexpr char kHighScoreFile[] = "puntuacion.bin";
 constexpr char kSettingsFile[] = "settings.bin";
+constexpr int kAudioSettingCount = 2;
 
 enum class Scene
 {
@@ -166,11 +167,11 @@ int main(void)
 
             if (IsKeyPressed(KEY_DOWN))
             {
-                game.selectedSetting = (game.selectedSetting + 1) % 2;
+                game.selectedSetting = (game.selectedSetting + 1) % kAudioSettingCount;
             }
             else if (IsKeyPressed(KEY_UP))
             {
-                game.selectedSetting = (game.selectedSetting - 1 + 2) % 2;
+                game.selectedSetting = (game.selectedSetting - 1 + kAudioSettingCount) % kAudioSettingCount;
             }
 
             float *volume = game.selectedSetting == 0 ? &game.musicVolume : &game.sfxVolume;
@@ -580,14 +581,14 @@ void DrawSettingsScreen(const GameState *game, const Assets *assets)
 
     DrawTextCentered("CONFIGURACION DE AUDIO", (int)(GetScreenHeight() * 0.12f), 50, WHITE);
 
-    const char *labels[2] = {"MUSICA", "EFECTOS"};
-    const float volumes[2] = {game->musicVolume, game->sfxVolume};
+    const char *labels[kAudioSettingCount] = {"MUSICA", "EFECTOS"};
+    const float volumes[kAudioSettingCount] = {game->musicVolume, game->sfxVolume};
     const int labelX = (int)(GetScreenWidth() * 0.25f);
-    const int barY[2] = {(int)(GetScreenHeight() * 0.38f), (int)(GetScreenHeight() * 0.52f)};
+    const int barY[kAudioSettingCount] = {(int)(GetScreenHeight() * 0.38f), (int)(GetScreenHeight() * 0.52f)};
     const int barWidth = GetScreenWidth() / 2;
     const int barHeight = 30;
 
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < kAudioSettingCount; ++i)
     {
         const bool selected = i == game->selectedSetting;
         const Color labelColor = selected ? YELLOW : WHITE;
