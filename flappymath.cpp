@@ -20,10 +20,12 @@ constexpr float kMiddlePipeHeight = 150.0f;
 constexpr float kAnswerGateHeight = 135.0f;
 constexpr float kGroundPadding = 20.0f;
 constexpr char kHighScoreFile[] = "puntuacion.bin";
+constexpr char kSettingsFile[] = "settings.bin";
 
 enum class Scene
 {
     Start,
+    Settings,
     Playing,
     GameOver
 };
@@ -85,6 +87,9 @@ struct GameState
     Obstacle obstacle;
     int score;
     int highScore;
+    float musicVolume;
+    float sfxVolume;
+    int selectedSetting;
 };
 
 int LoadHighScore();
@@ -112,6 +117,10 @@ void DrawPipes(const Obstacle *obstacle, const Assets *assets);
 void DrawProblem(const Obstacle *obstacle);
 void DrawPlayer(const Player *player, const Assets *assets);
 bool WantsPrimaryAction();
+void LoadSettings(GameState *game);
+void SaveSettings(const GameState *game);
+void ApplyVolumeSettings(const GameState *game, Assets *assets);
+void DrawSettingsScreen(const GameState *game, const Assets *assets);
 } // namespace
 
 int main(void)
@@ -127,14 +136,56 @@ int main(void)
     GameState game = {};
     game.scene = Scene::Start;
     game.highScore = LoadHighScore();
+    game.musicVolume = 0.5f;
+    game.sfxVolume = 0.5f;
+    game.selectedSetting = 0;
+    LoadSettings(&game);
     ResetPlayer(&game.player);
     ResetObstacle(&game.obstacle, GetScreenWidth(), GetScreenHeight(), assets.pipeTop.height);
+    ApplyVolumeSettings(&game, &assets);
 
     while (!WindowShouldClose())
     {
         if (game.scene == Scene::Start && WantsPrimaryAction())
         {
             StartRun(&game, &assets);
+        }
+        else if (game.scene == Scene::Start && IsKeyPressed(KEY_S))
+        {
+            game.scene = Scene::Settings;
+            PlayMusicStream(assets.music);
+        }
+        else if (game.scene == Scene::Settings)
+        {
+            if (IsKeyPressed(KEY_ESCAPE) || WantsPrimaryAction())
+            {
+                StopMusicStream(assets.music);
+                SaveSettings(&game);
+                game.scene = Scene::Start;
+            }
+
+            if (IsKeyPressed(KEY_DOWN))
+            {
+                game.selectedSetting = (game.selectedSetting + 1) % 2;
+            }
+            else if (IsKeyPressed(KEY_UP))
+            {
+                game.selectedSetting = (game.selectedSetting - 1 + 2) % 2;
+            }
+
+            float *volume = game.selectedSetting == 0 ? &game.musicVolume : &game.sfxVolume;
+            if (IsKeyPressed(KEY_RIGHT))
+            {
+                *volume = *volume + 0.1f > 1.0f ? 1.0f : *volume + 0.1f;
+                ApplyVolumeSettings(&game, &assets);
+            }
+            else if (IsKeyPressed(KEY_LEFT))
+            {
+                *volume = *volume - 0.1f < 0.0f ? 0.0f : *volume - 0.1f;
+                ApplyVolumeSettings(&game, &assets);
+            }
+
+            UpdateMusicStream(assets.music);
         }
         else if (game.scene == Scene::GameOver && IsKeyPressed(KEY_R))
         {
@@ -153,6 +204,9 @@ int main(void)
         {
         case Scene::Start:
             DrawStartScreen(&game, &assets);
+            break;
+        case Scene::Settings:
+            DrawSettingsScreen(&game, &assets);
             break;
         case Scene::Playing:
             DrawPlayingScreen(&game, &assets);
@@ -198,6 +252,44 @@ void SaveHighScore(int score)
         fwrite(&score, sizeof(score), 1, file);
         fclose(file);
     }
+}
+
+void LoadSettings(GameState *game)
+{
+    FILE *file = fopen(kSettingsFile, "rb");
+    if (file != NULL)
+    {
+        float musicVolume;
+        float sfxVolume;
+        size_t readCount = fread(&musicVolume, sizeof(float), 1, file);
+        readCount += fread(&sfxVolume, sizeof(float), 1, file);
+        fclose(file);
+        if (readCount == 2)
+        {
+            game->musicVolume = musicVolume;
+            game->sfxVolume = sfxVolume;
+        }
+    }
+}
+
+void SaveSettings(const GameState *game)
+{
+    FILE *file = fopen(kSettingsFile, "wb");
+    if (file != NULL)
+    {
+        fwrite(&game->musicVolume, sizeof(float), 1, file);
+        fwrite(&game->sfxVolume, sizeof(float), 1, file);
+        fclose(file);
+    }
+}
+
+void ApplyVolumeSettings(const GameState *game, Assets *assets)
+{
+    SetMusicVolume(assets->music, game->musicVolume);
+    SetSoundVolume(assets->wing, game->sfxVolume);
+    SetSoundVolume(assets->hit, game->sfxVolume);
+    SetSoundVolume(assets->die, game->sfxVolume);
+    SetSoundVolume(assets->point, game->sfxVolume);
 }
 
 Assets LoadAssets()
@@ -259,6 +351,7 @@ void StartRun(GameState *game, Assets *assets)
     game->score = 0;
     ResetPlayer(&game->player);
     ResetObstacle(&game->obstacle, GetScreenWidth(), GetScreenHeight(), assets->pipeTop.height);
+    ApplyVolumeSettings(game, assets);
     StopMusicStream(assets->music);
     PlayMusicStream(assets->music);
 }
@@ -478,6 +571,43 @@ void DrawStartScreen(const GameState *game, const Assets *assets)
     DrawTextureCentered(assets->playButton, (Vector2){GetScreenWidth() * 0.5f, GetScreenHeight() * 0.68f}, WHITE);
     DrawTextureV(assets->creators, (Vector2){15.0f, (float)GetScreenHeight() - assets->creators.height - 15.0f}, WHITE);
     DrawTextCentered(TextFormat("LA PUNTUACION MAS ALTA ES: %d", game->highScore), (int)(GetScreenHeight() * 0.79f), 30, BLACK);
+    DrawTextCentered("Presiona [S] para configuracion de audio", (int)(GetScreenHeight() * 0.89f), 24, GRAY);
+}
+
+void DrawSettingsScreen(const GameState *game, const Assets *assets)
+{
+    DrawBackground(assets->background);
+
+    DrawTextCentered("CONFIGURACION DE AUDIO", (int)(GetScreenHeight() * 0.12f), 50, WHITE);
+
+    const char *labels[2] = {"MUSICA", "EFECTOS"};
+    const float volumes[2] = {game->musicVolume, game->sfxVolume};
+    const int labelX = (int)(GetScreenWidth() * 0.25f);
+    const int barY[2] = {(int)(GetScreenHeight() * 0.38f), (int)(GetScreenHeight() * 0.52f)};
+    const int barWidth = GetScreenWidth() / 2;
+    const int barHeight = 30;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        const bool selected = i == game->selectedSetting;
+        const Color labelColor = selected ? YELLOW : WHITE;
+        const char *prefix = selected ? "-> " : "   ";
+
+        DrawText(TextFormat("%s%s", prefix, labels[i]), labelX, barY[i] - 25, 36, labelColor);
+
+        DrawRectangle(labelX, barY[i], barWidth, barHeight, Fade(BLACK, 0.5f));
+
+        const int fillWidth = (int)(barWidth * volumes[i]);
+        DrawRectangle(labelX, barY[i], fillWidth, barHeight, BLUE);
+
+        DrawRectangleLines(labelX, barY[i], barWidth, barHeight, Fade(WHITE, 0.7f));
+
+        const char *percentText = TextFormat("%d%%", (int)(volumes[i] * 100.0f));
+        DrawText(percentText, labelX + barWidth + 15, barY[i], 30, WHITE);
+    }
+
+    DrawTextCentered("[FLECHA ARRIBA/ABAJO] Navegar    [FLECHA IZQ/DER] Ajustar    [ESC] Volver",
+                     (int)(GetScreenHeight() * 0.78f), 28, Fade(WHITE, 0.7f));
 }
 
 void DrawPlayingScreen(const GameState *game, const Assets *assets)
